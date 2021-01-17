@@ -6,6 +6,9 @@ from ccmlib.cmds import command, cluster_cmds, node_cmds
 
 from optparse import OptionParser
 
+if 'SCYLLA_CCM_STANDALONE' in os.environ:
+    del os.environ['SCYLLA_CCM_STANDALONE']
+
 def get_command(kind, cmd):
     cmd_name = kind.lower().capitalize() + cmd.lower().capitalize() + "Cmd"
     try:
@@ -48,12 +51,11 @@ if __name__ == "__main__":
     sys.stderr.write('\x00');
 
     while True:
-        size = unpack('H', sys.stdin.read(2))[0]
+        size = unpack('H', sys.stdin.buffer.read(2))[0]
         args = yaml.safe_load(sys.stdin.read(size))
-        args = [arg.encode('utf-8') for arg in args]
+        args = [arg for arg in args]
         arg1 = args[0].lower()
-
-        if arg1 in cluster_cmds.commands():
+        if arg1 in cluster_cmds.cluster_cmds():
             kind = 'cluster'
             cmd = arg1
             cmd_args = args[1:]

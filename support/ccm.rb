@@ -151,7 +151,7 @@ module CCM extend self
         @ccm_script  = ccm_script
         @env         = env
         @notifier    = notifier
-        @python_path = Cliver.detect!('python', '~> 2.7', detector: /(?<=Python )[0-9][.0-9a-z]+/)
+        @python_path = Cliver.detect!('python', '~> 3.8', detector: /(?<=Python )[0-9][.0-9a-z]+/)
         start
       end
 
@@ -408,7 +408,7 @@ module CCM extend self
         @cluster = @session = nil
       end
 
-      @ccm.exec('stop')
+      @ccm.exec('stop', '--not-gently')
       refresh_status
 
       nil
@@ -850,7 +850,8 @@ module CCM extend self
 
   @dse_version = ENV['DSE_VERSION']
   @dse = !@dse_version.nil?
-  @cassandra_version = ENV['CASSANDRA_VERSION'] || (@dse_version && cassandra_version_from_dse(@dse_version)) || '3.0.1'
+  @cassandra_version = ENV['CASSANDRA_VERSION'] || (@dse_version && cassandra_version_from_dse(@dse_version)) || ENV['SCYLLA_VERSION'] || '3.0.1'
+  @scylla_version = ENV['SCYLLA_VERSION']
   @cluster_version = @dse_version || @cassandra_version
   @cluster_name = "ruby-driver-#{@dse ? 'dse' : 'cassandra'}-#{@cluster_version.gsub('.', '_')}-test-cluster"
 
@@ -940,9 +941,12 @@ module CCM extend self
     nodes = Array.new(datacenters, nodes_per_datacenter).join(':')
 
     if !@dse && ENV['CASSANDRA_DIR'] && !ENV['CASSANDRA_DIR'].empty?
-      ccm.exec('create', name, '--install-dir', ENV['CASSANDRA_DIR'])
+      ccm.exec('create', name, '--install-dir', ENV['CASSANDRA_DIR'], '-i', '127.0.0.', '-n', nodes,)
+    elsif ENV['SCYLLA_VERSION'] && !ENV['SCYLLA_VERSION'].empty?
+      create_args = ['-i', '127.0.0.', '-n', nodes, '--scylla', '-v', version, name]
+      ccm.exec('create', *create_args)
     else
-      create_args = ['-v', version, name]
+      create_args = ['-i', '127.0.0.', '-n', nodes, '-v', version, name]
       create_args << '--dse' if @dse
       ccm.exec('create', *create_args)
     end
@@ -956,7 +960,9 @@ module CCM extend self
       'hinted_handoff_enabled: false',
       'dynamic_snitch_update_interval_in_ms: 1000'
     ]
-
+    unless @scylla_version.nil?
+      config << 'experimental: true'
+    end
     if cassandra_version.start_with?('1.2.')
       config << 'reduce_cache_sizes_at: 0'
       config << 'reduce_cache_capacity_to: 0'
@@ -1002,7 +1008,7 @@ module CCM extend self
     end
 
     ccm.exec('updateconf', *config)
-    ccm.exec('populate', '-n', nodes, '-i', '127.0.0.')
+    # ccm.exec('populate', '-n', nodes, '-i', '127.0.0.')
 
     clusters << @current_cluster = Cluster.new(name, ccm, firewall, nodes_per_datacenter * datacenters, datacenters,
                                                [], @dse)
